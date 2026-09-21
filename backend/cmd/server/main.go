@@ -47,7 +47,7 @@ func healthHandler(db *sql.DB, rdb *redis.Client) http.HandlerFunc {
 
 func main() {
 	// Setup Postgres Connection
-	connStr := "postgres://postgres:password@localhost:5432/verification?sslmode=disable"
+	connStr := "postgres://postgres:password@localhost:5434/verification?sslmode=disable"
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
 		log.Fatalf("Failed to connect to Postgres: %v", err)
@@ -56,14 +56,14 @@ func main() {
 
 	// Setup Redis Connection
 	rdb := redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
+		Addr:     "localhost:6380",
 		Password: "", // no password set
 		DB:       0,  // use default DB
 	})
 
 	http.HandleFunc("/health", healthHandler(db, rdb))
 
-	port := ":8080"
+	port := ":8081"
 	fmt.Printf("Server listening on port %s\n", port)
 	if err := http.ListenAndServe(port, nil); err != nil {
 		log.Fatalf("Server failed: %v", err)
