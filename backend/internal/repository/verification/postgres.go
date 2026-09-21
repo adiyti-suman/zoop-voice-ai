@@ -38,6 +38,89 @@ func (r *PostgresRepository) Create(ctx context.Context, v *verification.Verific
 	return err
 }
 
+func (r *PostgresRepository) CreateIdempotent(ctx context.Context, v *verification.Verification, idempotencyKey string) (*verification.Verification, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	// Try inserting into idempotency_keys
+	// We'll set an arbitrary expiry of 24 hours for idempotency keys
+	ikQuery := `
+		INSERT INTO idempotency_keys (key, operation, resource_id, expires_at)
+		VALUES ($1, $2, $3, NOW() + INTERVAL '24 hours')
+		ON CONFLICT (key, operation) DO NOTHING
+		RETURNING resource_id
+	`
+	var existingResourceID sql.NullString
+	err = tx.QueryRowContext(ctx, ikQuery, idempotencyKey, "CREATE_VERIFICATION", v.ID).Scan(&existingResourceID)
+
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+
+	if errors.Is(err, sql.ErrNoRows) {
+		// The key already exists. Get the existing resource ID
+		query := `SELECT resource_id FROM idempotency_keys WHERE key = $1 AND operation = $2`
+		err = tx.QueryRowContext(ctx, query, idempotencyKey, "CREATE_VERIFICATION").Scan(&existingResourceID)
+		if err != nil {
+			return nil, err
+		}
+		
+		// Return the existing verification
+		var existing verification.Verification
+		var metaBytes []byte
+		getQ := `
+			SELECT id, external_id, type, status, subject_id, workflow_id, workflow_version, 
+				   language, locale, metadata, created_at, updated_at, started_at, completed_at, expires_at
+			FROM verifications
+			WHERE id = $1
+		`
+		row := tx.QueryRowContext(ctx, getQ, existingResourceID.String)
+		err = row.Scan(
+			&existing.ID, &existing.ExternalID, &existing.Type, &existing.Status, &existing.SubjectID, &existing.WorkflowID, &existing.WorkflowVersion,
+			&existing.Language, &existing.Locale, &metaBytes, &existing.CreatedAt, &existing.UpdatedAt, &existing.StartedAt, &existing.CompletedAt, &existing.ExpiresAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if err := existing.SetMetadataBytes(metaBytes); err != nil {
+			return nil, err
+		}
+		
+		tx.Commit()
+		return &existing, nil
+	}
+
+	// Key was inserted, so proceed with creating the verification
+	metaBytes, err := v.GetMetadataBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	vQuery := `
+		INSERT INTO verifications (
+			id, external_id, type, status, subject_id, workflow_id, workflow_version, 
+			language, locale, metadata, created_at, updated_at, expires_at
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
+		)
+	`
+	_, err = tx.ExecContext(ctx, vQuery,
+		v.ID, v.ExternalID, v.Type, v.Status, v.SubjectID, v.WorkflowID, v.WorkflowVersion,
+		v.Language, v.Locale, metaBytes, v.CreatedAt, v.UpdatedAt, v.ExpiresAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return v, nil
+}
+
 func (r *PostgresRepository) GetByID(ctx context.Context, id string) (*verification.Verification, error) {
 	query := `
 		SELECT id, external_id, type, status, subject_id, workflow_id, workflow_version, 

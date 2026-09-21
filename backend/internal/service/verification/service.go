@@ -34,15 +34,6 @@ func NewService(repo verfRepo.Repository) Service {
 }
 
 func (s *serviceImpl) Create(ctx context.Context, idempotencyKey string, req CreateRequest) (*verification.Verification, error) {
-	// Simple Idempotency logic - store in DB as external ID for this phase
-	// Or use Redis properly. For Phase 03 we use external_id as a fallback.
-	if idempotencyKey != "" {
-		existing, err := s.repo.GetByExternalID(ctx, idempotencyKey)
-		if err == nil {
-			return existing, nil
-		}
-	}
-
 	var wfID *uuid.UUID
 	if req.WorkflowID != nil && *req.WorkflowID != "" {
 		parsed, err := uuid.Parse(*req.WorkflowID)
@@ -51,15 +42,9 @@ func (s *serviceImpl) Create(ctx context.Context, idempotencyKey string, req Cre
 		}
 	}
 
-	extID := &idempotencyKey
-	if idempotencyKey == "" {
-		extID = nil
-	}
-
 	now := time.Now().UTC()
 	v := &verification.Verification{
 		ID:              uuid.New(),
-		ExternalID:      extID,
 		Type:            req.Type,
 		Status:          verification.StatusCreated,
 		SubjectID:       req.SubjectID,
@@ -76,22 +61,34 @@ func (s *serviceImpl) Create(ctx context.Context, idempotencyKey string, req Cre
 		return nil, err
 	}
 
-	if err := s.repo.Create(ctx, v); err != nil {
+	var existing *verification.Verification
+	var err error
+	if idempotencyKey != "" {
+		existing, err = s.repo.CreateIdempotent(ctx, v, idempotencyKey)
+	} else {
+		err = s.repo.Create(ctx, v)
+		existing = v
+	}
+
+	if err != nil {
 		return nil, verification.ErrInternalError
 	}
-
-	event := &verification.AuditEvent{
-		ID:             uuid.New(),
-		VerificationID: v.ID,
-		EventType:      "VERIFICATION_CREATED",
-		ActorType:      "SYSTEM",
-		NewState:       &v.Status,
-		Metadata:       map[string]interface{}{},
-		CreatedAt:      now,
+	
+	// If it was newly created (IDs match), log the audit event
+	if existing.ID == v.ID {
+		event := &verification.AuditEvent{
+			ID:             uuid.New(),
+			VerificationID: v.ID,
+			EventType:      "VERIFICATION_CREATED",
+			ActorType:      "SYSTEM",
+			NewState:       &v.Status,
+			Metadata:       map[string]interface{}{},
+			CreatedAt:      now,
+		}
+		_ = s.repo.LogAuditEvent(ctx, event) // Ignore audit log failure for now
 	}
-	_ = s.repo.LogAuditEvent(ctx, event) // Ignore audit log failure for now
 
-	return v, nil
+	return existing, nil
 }
 
 func (s *serviceImpl) Get(ctx context.Context, id string) (*verification.Verification, error) {

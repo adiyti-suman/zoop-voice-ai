@@ -24,7 +24,7 @@ func (s VerificationStatus) String() string {
 
 func IsTerminalState(status VerificationStatus) bool {
 	switch status {
-	case StatusCompleted, StatusFailed, StatusCancelled, StatusExpired:
+	case StatusCompleted, StatusFailed, StatusCancelled, StatusExpired, StatusApproved, StatusRejected:
 		return true
 	}
 	return false

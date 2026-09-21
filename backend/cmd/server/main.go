@@ -60,9 +60,19 @@ func runMigrations(db *sql.DB) {
 	}
 	_, err = db.Exec(string(migration))
 	if err != nil {
-		log.Printf("Migration failed: %v", err)
+		log.Printf("Migration 1 failed: %v", err)
 	} else {
-		log.Println("Migrations applied successfully.")
+		log.Println("Migration 1 applied successfully.")
+	}
+
+	migration2, err2 := os.ReadFile("./migrations/000002_create_idempotency_keys_table.up.sql")
+	if err2 == nil {
+		_, err = db.Exec(string(migration2))
+		if err != nil {
+			log.Printf("Migration 2 failed: %v", err)
+		} else {
+			log.Println("Migration 2 applied successfully.")
+		}
 	}
 }
 
