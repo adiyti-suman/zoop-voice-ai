@@ -29,6 +29,13 @@ services:
       timeout: 5s
       retries: 5
 
+  ml:
+    build: ./ml
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./ml:/app
+
 volumes:
   postgres_data:
   redis_data:
