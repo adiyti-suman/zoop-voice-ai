@@ -7,10 +7,16 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	_ "github.com/lib/pq"
 	"github.com/redis/go-redis/v9"
+
+	verfRepo "verification-platform/internal/repository/verification"
+	verfSvc "verification-platform/internal/service/verification"
+	verfHandler "verification-platform/internal/handler/verification"
+	appHttp "verification-platform/internal/http"
 )
 
 func healthHandler(db *sql.DB, rdb *redis.Client) http.HandlerFunc {
@@ -45,6 +51,21 @@ func healthHandler(db *sql.DB, rdb *redis.Client) http.HandlerFunc {
 	}
 }
 
+func runMigrations(db *sql.DB) {
+	// Quick hack for v0 instead of golang-migrate
+	migration, err := os.ReadFile("./migrations/000001_create_verifications_table.up.sql")
+	if err != nil {
+		log.Printf("Could not read migration file: %v", err)
+		return
+	}
+	_, err = db.Exec(string(migration))
+	if err != nil {
+		log.Printf("Migration failed: %v", err)
+	} else {
+		log.Println("Migrations applied successfully.")
+	}
+}
+
 func main() {
 	// Setup Postgres Connection
 	connStr := "postgres://postgres:password@localhost:5434/verification?sslmode=disable"
@@ -54,6 +75,8 @@ func main() {
 	}
 	defer db.Close()
 
+	runMigrations(db)
+
 	// Setup Redis Connection
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     "localhost:6380",
@@ -61,11 +84,19 @@ func main() {
 		DB:       0,  // use default DB
 	})
 
-	http.HandleFunc("/health", healthHandler(db, rdb))
+	// Wire Verification Domain
+	repo := verfRepo.NewPostgresRepository(db)
+	svc := verfSvc.NewService(repo)
+	handler := verfHandler.NewHandler(svc)
+	router := appHttp.NewRouter(handler)
+
+	mux := http.NewServeMux()
+	mux.Handle("/api/v1/", router)
+	mux.HandleFunc("/health", healthHandler(db, rdb))
 
 	port := ":8081"
 	fmt.Printf("Server listening on port %s\n", port)
-	if err := http.ListenAndServe(port, nil); err != nil {
+	if err := http.ListenAndServe(port, mux); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
 }
