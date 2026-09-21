@@ -29,7 +29,7 @@ const (
 func IsVersionTransitionValid(from, to WorkflowVersionStatus) bool {
 	switch from {
 	case VersionStatusDraft:
-		return to == VersionStatusValidating || to == VersionStatusArchived
+		return to == VersionStatusValidating || to == VersionStatusPublished || to == VersionStatusArchived
 	case VersionStatusValidating:
 		return to == VersionStatusPublished || to == VersionStatusDraft
 	case VersionStatusPublished:
