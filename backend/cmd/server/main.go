@@ -16,6 +16,9 @@ import (
 	verfRepo "verification-platform/internal/repository/verification"
 	verfSvc "verification-platform/internal/service/verification"
 	verfHandler "verification-platform/internal/handler/verification"
+	wfRepo "verification-platform/internal/repository/workflow"
+	wfSvc "verification-platform/internal/service/workflow"
+	wfHandler "verification-platform/internal/handler/workflow"
 	appHttp "verification-platform/internal/http"
 )
 
@@ -107,8 +110,14 @@ func main() {
 	// Wire Verification Domain
 	repo := verfRepo.NewPostgresRepository(db)
 	svc := verfSvc.NewService(repo)
-	handler := verfHandler.NewHandler(svc)
-	router := appHttp.NewRouter(handler)
+	vh := verfHandler.NewHandler(svc)
+
+	// Wire Workflow Domain
+	wfRepository := wfRepo.NewPostgresRepository(db)
+	wfService := wfSvc.NewService(wfRepository)
+	wh := wfHandler.NewHandler(wfService)
+
+	router := appHttp.NewRouter(vh, wh)
 
 	mux := http.NewServeMux()
 	mux.Handle("/api/v1/", router)
