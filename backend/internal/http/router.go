@@ -5,20 +5,30 @@ import (
 	"strings"
 
 	verfHandler "verification-platform/internal/handler/verification"
+	voiceHandler "verification-platform/internal/handler/voice"
 	wfHandler "verification-platform/internal/handler/workflow"
 )
 
 type Router struct {
-	mux        *http.ServeMux
+	mux         *http.ServeMux
 	verfHandler *verfHandler.Handler
-	wfHandler  *wfHandler.Handler
+	wfHandler   *wfHandler.Handler
+	voiceREST   *voiceHandler.Handler
+	voiceStream *voiceHandler.StreamHandler
 }
 
-func NewRouter(vh *verfHandler.Handler, wh *wfHandler.Handler) *Router {
+func NewRouter(
+	vh *verfHandler.Handler,
+	wh *wfHandler.Handler,
+	vr *voiceHandler.Handler,
+	vs *voiceHandler.StreamHandler,
+) *Router {
 	r := &Router{
-		mux:        http.NewServeMux(),
+		mux:         http.NewServeMux(),
 		verfHandler: vh,
-		wfHandler:  wh,
+		wfHandler:   wh,
+		voiceREST:   vr,
+		voiceStream: vs,
 	}
 	r.registerRoutes()
 	return r
@@ -98,6 +108,32 @@ func (r *Router) registerRoutes() {
 			r.wfHandler.CancelRun(w, req)
 		case req.Method == http.MethodGet:
 			r.wfHandler.GetRun(w, req)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+	// ── Voice routes ───────────────────────────────────────────────────────
+	r.mux.HandleFunc("/api/v1/voice/sessions", func(w http.ResponseWriter, req *http.Request) {
+		if req.Method == http.MethodPost {
+			r.voiceREST.CreateSession(w, req)
+			return
+		}
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	})
+
+	r.mux.HandleFunc("/api/v1/voice/sessions/", func(w http.ResponseWriter, req *http.Request) {
+		path := req.URL.Path
+		switch {
+		case strings.HasSuffix(path, "/stream") && req.Method == http.MethodGet:
+			r.voiceStream.ServeHTTP(w, req)
+		case strings.HasSuffix(path, "/pause") && req.Method == http.MethodPost:
+			r.voiceREST.PauseSession(w, req)
+		case strings.HasSuffix(path, "/resume") && req.Method == http.MethodPost:
+			r.voiceREST.ResumeSession(w, req)
+		case strings.HasSuffix(path, "/stop") && req.Method == http.MethodPost:
+			r.voiceREST.StopSession(w, req)
+		case req.Method == http.MethodGet:
+			r.voiceREST.GetSession(w, req)
 		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}

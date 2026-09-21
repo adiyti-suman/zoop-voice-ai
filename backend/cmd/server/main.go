@@ -19,6 +19,9 @@ import (
 	wfRepo "verification-platform/internal/repository/workflow"
 	wfSvc "verification-platform/internal/service/workflow"
 	wfHandler "verification-platform/internal/handler/workflow"
+	voiceRepo "verification-platform/internal/repository/voice"
+	voiceSvc "verification-platform/internal/service/voice"
+	voiceHandler "verification-platform/internal/handler/voice"
 	appHttp "verification-platform/internal/http"
 )
 
@@ -87,6 +90,16 @@ func runMigrations(db *sql.DB) {
 			log.Println("Migration 3 applied successfully.")
 		}
 	}
+
+	migration4, err4 := os.ReadFile("./migrations/000004_create_voice_sessions_table.up.sql")
+	if err4 == nil {
+		_, err = db.Exec(string(migration4))
+		if err != nil {
+			log.Printf("Migration 4 failed: %v", err)
+		} else {
+			log.Println("Migration 4 applied successfully.")
+		}
+	}
 }
 
 func main() {
@@ -117,7 +130,14 @@ func main() {
 	wfService := wfSvc.NewService(wfRepository)
 	wh := wfHandler.NewHandler(wfService)
 
-	router := appHttp.NewRouter(vh, wh)
+	// Wire Voice Domain
+	vRepository := voiceRepo.NewPostgresRepository(db)
+	vService := voiceSvc.NewService(vRepository)
+	vREST := voiceHandler.NewHandler(vService)
+	vBuffer := voiceSvc.NewAudioBuffer(100) // max 100 chunks buffered
+	vStream := voiceHandler.NewStreamHandler(vService, vBuffer)
+
+	router := appHttp.NewRouter(vh, wh, vREST, vStream)
 
 	mux := http.NewServeMux()
 	mux.Handle("/api/v1/", router)
