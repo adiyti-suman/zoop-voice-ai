@@ -74,6 +74,16 @@ func runMigrations(db *sql.DB) {
 			log.Println("Migration 2 applied successfully.")
 		}
 	}
+
+	migration3, err3 := os.ReadFile("./migrations/000003_create_workflow_tables.up.sql")
+	if err3 == nil {
+		_, err = db.Exec(string(migration3))
+		if err != nil {
+			log.Printf("Migration 3 failed: %v", err)
+		} else {
+			log.Println("Migration 3 applied successfully.")
+		}
+	}
 }
 
 func main() {
